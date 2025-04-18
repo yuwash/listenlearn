@@ -10,6 +10,7 @@ import edge_tts
 import edge_tts.typing
 
 import common
+import learningset
 
 
 def get_user_data_dir() -> str:
@@ -22,6 +23,8 @@ def get_user_data_dir() -> str:
 class Config:
     learning_modes: dict[str, common.LearningMode]
     default_learning_mode: common.LearningMode
+    openai_providers: dict[str, learningset.OpenAIProvider]
+    default_openai_provider: learningset.OpenAIProvider
 
     @classmethod
     def load(cls) -> "Config":
@@ -33,9 +36,22 @@ class Config:
             for mode_name, mode_config in data["learning_modes"].items()
         }
         default_learning_mode_name = data["default_learning_mode"]
+        openai_providers = {
+            provider_name: learningset.OpenAIProvider(
+                base_url=provider_config["base_url"],
+                model=provider_config["model"],
+                authless=provider_config["authless"],
+            )
+            for provider_name, provider_config in data["openai_providers"].items()
+        }
+        default_openai_provider = openai_providers[
+            data["default_openai_provider"]
+        ]
         return cls(
             learning_modes=learning_modes,
             default_learning_mode=learning_modes[default_learning_mode_name],
+            openai_providers=openai_providers,
+            default_openai_provider=default_openai_provider,
         )
 
 
@@ -69,6 +85,13 @@ class LearningModeTTS:
         await self._communicate_and_save(text, output_file, self.fallback_voice["Name"])
 
 
+async def learningset_command(args: argparse.Namespace, mode: common.LearningMode) -> None:
+    text = sys.stdin.read()
+    l_set = learningset.extract_sentences_learning_set(text, mode)
+    l_set.extend(learningset.extract_short_chunks_learning_set(text, mode))
+    learningset.learning_set_to_csv(l_set, args.out)
+
+
 async def tts_command(args: argparse.Namespace, mode: common.LearningMode) -> None:
     text = sys.stdin.read()
     tts = await LearningModeTTS.create(mode)
@@ -88,6 +111,10 @@ if __name__ == "__main__":
     parser_tts = subparsers.add_parser("tts")
     parser_tts.add_argument("-o", "--out", type=str, required=True, help="Output file")
 
+    # create the parser for the "learningset" command
+    parser_learningset = subparsers.add_parser("learningset")
+    parser_learningset.add_argument("-o", "--out", type=str, required=True, help="Output file")
+
     args = parser.parse_args()
 
     mode = (
@@ -95,4 +122,6 @@ if __name__ == "__main__":
         if args.mode else config.default_learning_mode
     )
     if args.command == "tts":
-        asyncio.run(tts_command(args))
+        asyncio.run(tts_command(args, mode))
+    elif args.command == "learningset":
+        asyncio.run(learningset_command(args, mode))

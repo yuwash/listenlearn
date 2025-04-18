@@ -9,6 +9,8 @@ import appdirs
 import edge_tts
 import edge_tts.typing
 
+import common
+
 
 def get_user_data_dir() -> str:
     app_author = "yuwash.eu"
@@ -16,18 +18,10 @@ def get_user_data_dir() -> str:
     return appdirs.user_data_dir(app_name, app_author)
 
 
-@dataclasses.dataclass(frozen=True)
-class LearningMode:
-    target_language: str
-    fallback_language: str
-    target_voice_gender: str = "Female"
-    fallback_voice_gender: str = "Female"
-
-
 @dataclasses.dataclass
 class Config:
-    learning_modes: dict[str, LearningMode]
-    default_learning_mode: LearningMode
+    learning_modes: dict[str, common.LearningMode]
+    default_learning_mode: common.LearningMode
 
     @classmethod
     def load(cls) -> "Config":
@@ -35,7 +29,7 @@ class Config:
         config_file_path = os.path.join(user_data_dir, "config.json")
         data = json.load(open(config_file_path))
         learning_modes = {
-            mode_name: LearningMode(**mode_config)
+            mode_name: common.LearningMode(**mode_config)
             for mode_name, mode_config in data["learning_modes"].items()
         }
         default_learning_mode_name = data["default_learning_mode"]
@@ -47,13 +41,13 @@ class Config:
 
 @dataclasses.dataclass(frozen=True)
 class LearningModeTTS:
-    mode: LearningMode
+    mode: common.LearningMode
     voices_manager: edge_tts.VoicesManager
     target_voice: edge_tts.typing.VoicesManagerVoice
     fallback_voice: edge_tts.typing.VoicesManagerVoice
 
     @classmethod
-    async def create(cls, mode: LearningMode) -> "LearningModeTTS":
+    async def create(cls, mode: common.LearningMode) -> "LearningModeTTS":
         voices_manager = await edge_tts.VoicesManager.create()
         target_voice = voices_manager.find(Gender=mode.target_voice_gender, Language=mode.target_language)[0]
         fallback_voice = voices_manager.find(Gender=mode.fallback_voice_gender, Language=mode.fallback_language)[0]
@@ -75,7 +69,7 @@ class LearningModeTTS:
         await self._communicate_and_save(text, output_file, self.fallback_voice["Name"])
 
 
-async def tts_command(args: argparse.Namespace, mode: LearningMode) -> None:
+async def tts_command(args: argparse.Namespace, mode: common.LearningMode) -> None:
     text = sys.stdin.read()
     tts = await LearningModeTTS.create(mode)
     await tts.communicate_and_save_target_language(text, args.out)

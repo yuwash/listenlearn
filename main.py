@@ -36,7 +36,10 @@ class Config:
         config_file_path = os.path.join(user_data_dir, "config.json")
         data = json.load(open(config_file_path))
         learning_modes = {
-            mode_name: common.LearningMode(**mode_config)
+            mode_name: common.LearningMode(
+                target_params=common.TTSParams(**mode_config["target_params"]),
+                fallback_params=common.TTSParams(**mode_config["fallback_params"]),
+            )
             for mode_name, mode_config in data["learning_modes"].items()
         }
         default_learning_mode_name = data["default_learning_mode"]
@@ -69,8 +72,13 @@ class LearningModeTTS:
     @classmethod
     async def create(cls, mode: common.LearningMode) -> "LearningModeTTS":
         voices_manager = await edge_tts.VoicesManager.create()
-        target_voice = voices_manager.find(Gender=mode.target_voice_gender, Language=mode.target_language)[0]
-        fallback_voice = voices_manager.find(Gender=mode.fallback_voice_gender, Language=mode.fallback_language)[0]
+        target_voice = voices_manager.find(
+            Gender=mode.target_params.voice_gender, Language=mode.target_params.language
+        )[0]
+        fallback_voice = voices_manager.find(
+            Gender=mode.fallback_params.voice_gender,
+            Language=mode.fallback_params.language,
+        )[0]
         return cls(
             mode=mode,
             voices_manager=voices_manager,

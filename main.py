@@ -7,7 +7,7 @@ import os
 import os.path
 import sys
 import tempfile
-from collections import defaultdict
+from collections import deque
 
 import appdirs
 import edge_tts
@@ -161,18 +161,47 @@ class TTSItem:
         return 1 if len(self.target_language_text) < 50 else 2
 
 
+class ReviewQueue:
+    def __init__(self) -> None:
+        self._queue: deque[list[TTSItem]] = deque()
+        """
+        Keyed by minimum wait time.
+        Wait time is measured by a unit of learning item with at least
+        50 characters (probably a sentence) or 2 shorter items.
+        """
+
+    def __len__(self) -> int:
+        return len(self._queue)
+
+    def add(self, item: TTSItem, wait_time: int) -> None:
+        try:
+            self._queue[wait_time].append(item)
+        except IndexError:
+            self._queue.extend((wait_time - len(self._queue)) * [[]] + [[item]])
+
+    def progress(self, progress: int) -> None:
+        effective_progress = min(progress, len(self._queue) - 1)
+        if effective_progress <= 0:
+            return
+        for __ in range(effective_progress):
+            self._queue[0].extend(self._queue[1])
+            del self._queue[1]
+
+    def pop(self) -> list[TTSItem]:
+        try:
+            items = self._queue[0]
+        except IndexError:
+            return []
+
+        self._queue[0] = []
+        # Not actually popping as that would change the wait times.
+        return items
+
+
 async def settts_command(args: argparse.Namespace, mode: common.LearningMode) -> None:
     tts = await LearningModeTTS.create(mode)
     concat_list = []
-    review_queue = defaultdict(list)  # Keyed by minimum wait time.
-    # Wait time is measured by a unit of learning item with at least
-    # 50 characters (probably a sentence) or 2 shorter items.
-
-    def progress_queue(progress: int) -> None:
-        old_keys = list(sorted(review_queue.keys()))
-        for key in old_keys:
-            new_key = min(key - progress, 0)
-            review_queue[new_key].extend(review_queue.pop(key))
+    review_queue = ReviewQueue()
 
     with open(args.csv_file) as csvfile:
         reader = csv.reader(csvfile)
@@ -180,8 +209,8 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for i, row in enumerate(reader):
-                if review_queue[0]:
-                    for queue_item in review_queue[0]:
+                while next_queue := review_queue.pop():
+                    for queue_item in next_queue:
                         if queue_item.measure > 1:
                             concat_list.append(queue_item.target_audio_file)
                         else:
@@ -192,17 +221,17 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
                                     queue_item.target_audio_file,
                                 ]
                             )
-                    added_count = len(review_queue[0])
-                    if any(key > added_count for key in review_queue):
-                        progress = sum(
-                            queue_item.measure for queue_item in review_queue[0]
-                        )
-                    else:
-                        # No need to iterate as the correct progress
-                        # count won’t make a difference.
-                        progress = added_count
-                    del review_queue[0]
-                    progress_queue(progress)
+                    added_count = len(next_queue)
+                    progress = (
+                        sum(item.measure for item in next_queue)
+                        if len(review_queue) > added_count
+                        # No need to iterate as the (potentially
+                        # larger) correct progress count won’t make a
+                        # difference.
+                        else added_count
+                    )
+                    review_queue.progress(progress)
+
                 tts_item = TTSItem(
                     target_language_text=row[0],
                     fallback_language_text=row[1],
@@ -225,8 +254,8 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
                         tts_item.target_audio_file,
                     ]
                 )
-                progress_queue(tts_item.measure)
-                review_queue[2].append(tts_item)
+                review_queue.progress(tts_item.measure)
+                review_queue.add(tts_item, 2)
 
             with open(args.out, "wb") as out_file:
                 for audio_file in concat_list:

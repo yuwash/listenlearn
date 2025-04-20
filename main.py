@@ -184,13 +184,14 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
                     for queue_item in review_queue[0]:
                         if queue_item.measure > 1:
                             concat_list.append(queue_item.target_audio_file)
-                        concat_list.extend(
-                            [
-                                queue_item.target_audio_file,
-                                queue_item.fallback_audio_file,
-                                queue_item.target_audio_file,
-                            ]
-                        )
+                        else:
+                            concat_list.extend(
+                                [
+                                    queue_item.target_audio_file,
+                                    queue_item.fallback_audio_file,
+                                    queue_item.target_audio_file,
+                                ]
+                            )
                     added_count = len(review_queue[0])
                     if any(key > added_count for key in review_queue):
                         progress = sum(

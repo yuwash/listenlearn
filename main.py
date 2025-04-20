@@ -203,34 +203,37 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
     concat_list = []
     review_queue = ReviewQueue()
 
+    def review():
+        while next_queue := review_queue.pop():
+            for queue_item in next_queue:
+                if queue_item.measure > 1:
+                    concat_list.append(queue_item.target_audio_file)
+                else:
+                    concat_list.extend(
+                        [
+                            queue_item.target_audio_file,
+                            queue_item.fallback_audio_file,
+                            queue_item.target_audio_file,
+                        ]
+                    )
+            added_count = len(next_queue)
+            progress = (
+                sum(item.measure for item in next_queue)
+                if len(review_queue) > added_count
+                # No need to iterate as the (potentially
+                # larger) correct progress count won’t make a
+                # difference.
+                else added_count
+            )
+            review_queue.progress(progress)
+
     with open(args.csv_file) as csvfile:
         reader = csv.reader(csvfile)
         next(reader)  # Skip header row
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for i, row in enumerate(reader):
-                while next_queue := review_queue.pop():
-                    for queue_item in next_queue:
-                        if queue_item.measure > 1:
-                            concat_list.append(queue_item.target_audio_file)
-                        else:
-                            concat_list.extend(
-                                [
-                                    queue_item.target_audio_file,
-                                    queue_item.fallback_audio_file,
-                                    queue_item.target_audio_file,
-                                ]
-                            )
-                    added_count = len(next_queue)
-                    progress = (
-                        sum(item.measure for item in next_queue)
-                        if len(review_queue) > added_count
-                        # No need to iterate as the (potentially
-                        # larger) correct progress count won’t make a
-                        # difference.
-                        else added_count
-                    )
-                    review_queue.progress(progress)
+                review()
 
                 tts_item = TTSItem(
                     target_language_text=row[0],
@@ -256,6 +259,10 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
                 )
                 review_queue.progress(tts_item.measure)
                 review_queue.add(tts_item, 2)
+
+            while 0 < len(review_queue):
+                # Process any remaining items.
+                review()
 
             with open(args.out, "wb") as out_file:
                 for audio_file in concat_list:

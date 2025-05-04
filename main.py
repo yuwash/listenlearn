@@ -189,6 +189,8 @@ class ReviewQueue:
             del self._queue[1]
 
     def pop(self) -> list[TTSItem]:
+        if len(self._queue) == 1:
+            return self._queue.popleft()
         try:
             items = self._queue[0]
         except IndexError:
@@ -273,6 +275,8 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
             while 0 < len(review_queue):
                 # Process any remaining items.
                 review()
+                review_queue.progress(1)
+                # Skip a bit to make sure we finish.
 
             with open(args.out, "wb") as out_file:
                 for audio_file in concat_list:

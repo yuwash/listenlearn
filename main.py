@@ -7,6 +7,7 @@ import os
 import os.path
 import sys
 import tempfile
+import contextlib
 from collections import deque
 
 import appdirs
@@ -231,7 +232,14 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
         reader = csv.reader(csvfile)
         next(reader)  # Skip header row
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        if args.cache:
+            tmpdir = args.cache
+            os.makedirs(tmpdir, exist_ok=True)
+            tmpdir_context = contextlib.nullcontext(tmpdir)
+        else:
+            tmpdir_context = tempfile.TemporaryDirectory()
+
+        with tmpdir_context as tmpdir:
             for i, row in enumerate(reader):
                 review()
 
@@ -242,12 +250,14 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
                     fallback_audio_file=os.path.join(tmpdir, f"fallback_{i}.mp3"),
                 )
 
-                await tts.communicate_and_save_target_language(
-                    tts_item.target_language_text, tts_item.target_audio_file
-                )
-                await tts.communicate_and_save_fallback_language(
-                    tts_item.fallback_language_text, tts_item.fallback_audio_file
-                )
+                if not os.path.exists(tts_item.target_audio_file):
+                    await tts.communicate_and_save_target_language(
+                        tts_item.target_language_text, tts_item.target_audio_file
+                    )
+                if not os.path.exists(tts_item.fallback_audio_file):
+                    await tts.communicate_and_save_fallback_language(
+                        tts_item.fallback_language_text, tts_item.fallback_audio_file
+                    )
 
                 concat_list.extend(
                     [
@@ -302,6 +312,9 @@ if __name__ == "__main__":
     )
     parser_settts.add_argument(
         "-o", "--out", type=str, required=True, help="Output file"
+    )
+    parser_settts.add_argument(
+        "--cache", type=str, help="Cache directory for TTS files"
     )
 
     args = parser.parse_args()

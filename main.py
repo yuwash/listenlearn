@@ -8,6 +8,7 @@ import os.path
 import sys
 import tempfile
 import contextlib
+import typing
 from collections import deque
 
 import appdirs
@@ -161,6 +162,34 @@ class TTSItem:
     def measure(self) -> int:
         return 1 if len(self.target_language_text) < 50 else 2
 
+    def _get_audio_mapper(self) -> typing.Callable[[common.PlaybackItem], str]:
+        """Creates a mapping function from PlaybackItem to audio file."""
+        def audio_mapper(item: common.PlaybackItem) -> str:
+            if item == common.PlaybackItem.Target:
+                return self.target_audio_file
+            elif item == common.PlaybackItem.Fallback:
+                return self.fallback_audio_file
+            else:
+                raise ValueError(f"Unknown PlaybackItem: {item}")
+        return audio_mapper
+
+    def build_audio_sequence_for_review(
+        self, mode: common.LearningMode
+    ) -> typing.Sequence[str]:
+        playback_order = (
+            mode.long_target_review_playback_order
+            if self.measure > 1
+            else mode.short_target_review_playback_order
+        )
+        audio_mapper = self._get_audio_mapper()
+        return map(audio_mapper, playback_order)
+
+    def build_initial_audio_sequence(
+        self, mode: common.LearningMode
+    ) -> typing.Sequence[str]:
+        audio_mapper = self._get_audio_mapper()
+        return map(audio_mapper, mode.initial_playback_order)
+
 
 class ReviewQueue:
     def __init__(self) -> None:
@@ -209,16 +238,9 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
     def review():
         while next_queue := review_queue.pop():
             for queue_item in next_queue:
-                if queue_item.measure > 1:
-                    concat_list.append(queue_item.target_audio_file)
-                else:
-                    concat_list.extend(
-                        [
-                            queue_item.target_audio_file,
-                            queue_item.fallback_audio_file,
-                            queue_item.target_audio_file,
-                        ]
-                    )
+                concat_list.extend(
+                    queue_item.build_audio_sequence_for_review(mode)
+                )
             added_count = len(next_queue)
             progress = (
                 sum(item.measure for item in next_queue)
@@ -262,12 +284,7 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
                     )
 
                 concat_list.extend(
-                    [
-                        tts_item.target_audio_file,
-                        tts_item.fallback_audio_file,
-                        tts_item.target_audio_file,
-                        tts_item.target_audio_file,
-                    ]
+                    tts_item.build_initial_audio_sequence(mode)
                 )
                 review_queue.progress(tts_item.measure)
                 review_queue.add(tts_item, 2)

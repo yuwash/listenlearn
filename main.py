@@ -265,6 +265,8 @@ async def settts_command(args: argparse.Namespace, mode: common.LearningMode) ->
 
         with tmpdir_context as tmpdir:
             for i, row in enumerate(reader):
+                if not row:
+                    continue
                 review()
 
                 tts_item = TTSItem(
